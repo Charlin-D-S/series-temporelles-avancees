@@ -1,0 +1,340 @@
+---
+title: "Atelier 1"
+author: "Charlin DS"
+date: "2025-11-28"
+output: html_document
+---
+
+
+# Partie 3.4 : Prévision dans un processus ARMA
+
+## 1. Définition du processus
+On considère le processus AR(3) défini par :
+
+$$
+X_{t} - X_{t-1} + \frac{1}{2} X_{t-2} - \frac{1}{3} X_{t-3} = \epsilon_{t}
+$$
+
+où \((\epsilon_{t})_{t}\) est un bruit blanc gaussien centré réduit.
+
+---
+
+## 2. Simulation de 50 réalisations de longueur 105
+
+On simule 50 réalisations de ce processus, chacune de longueur 105.
+
+
+```{r simuler-processus}
+set.seed(123) # Pour la reproductibilité
+n=50
+# Définir le modèle AR(3)
+model <- arima.sim(
+  model = list(ar = c(1, -0.5, 1/3)), # Coefficients AR(3)
+  n = 105 * n # 50 réalisations de longueur 105
+)
+
+# Redimensionner les données en une matrice 50x105
+simulations <- matrix(model, nrow = 50, byrow = TRUE)
+```
+
+## 3. Estimation des paramètres pour chaque simulation
+Pour chaque simulation, on extrait les 100 premières valeurs et on estime les paramètres d'un AR(3).
+```{r}
+# Initialiser une liste pour stocker les estimations
+estimations <- list()
+
+# Boucle sur les 50 simulations
+for (i in 1:n) {
+  # Extraire les 100 premières valeurs
+  serie <- simulations[i, 1:100]
+
+  # Estimer un modèle AR(3)
+  fit <- arima(serie, order = c(3, 0, 0))
+
+  # Stocker les résultats
+  estimations[[i]] <- fit$coef
+}
+
+# Afficher les premières estimations
+head(estimations)
+
+```
+
+## 4. Prévision des 5 valeurs suivantes
+Pour chaque simulation, on prédit les 5 valeurs suivantes après les 100 premières.
+```{r}
+# Initialiser une matrice pour stocker les prévisions
+previsions <- matrix(NA, nrow = n, ncol = 5)
+
+# Boucle sur les 50 simulations
+for (i in 1:n) {
+  # Extraire les 100 premières valeurs
+  serie <- simulations[i, 1:100]
+
+  # Estimer un modèle AR(3)
+  fit <- arima(serie, order = c(3, 0, 0))
+
+  # Prédire les 5 valeurs suivantes
+  pred <- predict(fit, n.ahead = 5)
+
+  # Stocker les prévisions
+  previsions[i, ] <- pred$pred
+}
+
+```
+
+
+
+## 5. Calcul de l'erreur moyenne et de la variance de l'erreur de prévision
+On calcule l'erreur moyenne (biais) et la variance de l'erreur de prévision pour les horizons 1 à 5.
+
+```{r}
+# Initialiser des vecteurs pour stocker les erreurs
+erreurs <- matrix(NA, nrow = n, ncol = 5)
+
+# Boucle sur les 50 simulations
+for (i in 1:n) {
+  # Extraire les 5 valeurs réelles suivantes
+  valeurs_reelles <- simulations[i, 101:105]
+
+  # Calculer les erreurs de prévision
+  erreurs[i, ] <- valeurs_reelles - previsions[i, ]
+}
+
+# Calculer l'erreur moyenne (biais) pour chaque horizon
+biais <- colMeans(erreurs)
+
+# Calculer la variance de l'erreur pour chaque horizon
+variance <- apply(erreurs, 2, var)
+
+# Afficher les résultats
+data.frame(
+  Horizon = 1:5,
+  Biais = biais,
+  Variance = variance
+)
+
+
+```
+
+
+## 6. Répéter avec une durée d'observation plus longue
+On refait la même analyse en utilisant 104 valeurs pour l'estimation (au lieu de 100).
+
+```{r}
+# Initialiser une matrice pour stocker les prévisions
+previsions_long <- matrix(NA, nrow = 50, ncol = 5)
+
+# Initialiser une matrice pour stocker les erreurs
+erreurs_long <- matrix(NA, nrow = 50, ncol = 5)
+
+# Boucle sur les 50 simulations
+for (i in 1:50) {
+  # Extraire les 104 premières valeurs
+  serie_long <- simulations[i, 1:104]
+
+  # Estimer un modèle AR(3)
+  fit_long <- arima(serie_long, order = c(3, 0, 0))
+
+  # Prédire les 5 valeurs suivantes
+  pred_long <- predict(fit_long, n.ahead = 5)
+
+  # Stocker les prévisions
+  previsions_long[i, ] <- pred_long$pred
+
+  # Extraire les 5 valeurs réelles suivantes
+  valeurs_reelles_long <- simulations[i, 105]
+
+  # Calculer les erreurs de prévision
+  erreurs_long[i, ] <- valeurs_reelles_long - previsions_long[i, ]
+}
+
+# Calculer l'erreur moyenne (biais) pour chaque horizon
+biais_long <- colMeans(erreurs_long, na.rm = TRUE)
+
+# Calculer la variance de l'erreur pour chaque horizon
+variance_long <- apply(erreurs_long, 2, var, na.rm = TRUE)
+
+# Afficher les résultats
+data.frame(
+  Horizon = 1:5,
+  Biais = biais_long,
+  Variance = variance_long
+)
+
+```
+
+
+## 7. Comparaison des résultats
+On compare les résultats obtenus avec 100 et 104 observations.
+```{r}
+# Créer un tableau comparatif
+comparaison <- data.frame(
+  Horizon = 1:5,
+  Biais_100 = biais,
+  Variance_100 = variance,
+  Biais_104 = biais_long,
+  Variance_104 = variance_long
+)
+
+# Afficher le tableau
+comparaison
+
+```
+
+## Conclusion
+
+On observe que l'augmentation du nombre d'observations réduit généralement la variance de l'erreur de prévision.
+Le biais reste faible dans les deux cas, ce qui est attendu pour un modèle bien spécifié.
+
+---
+# Partie 3.5 : Processus non stationnaires
+
+## 1. Définition du processus
+
+On considère le processus \((X_t)_{t \in \mathbb{Z}}\) défini par :
+
+\[
+X_t = 1 + t^2 + \frac{1}{3} X_{t-1} + \epsilon_t
+\]
+
+où \((\epsilon_t)_{t \in \mathbb{Z}}\) est un bruit blanc gaussien de variance égale à 1.
+
+---
+
+## 2. Création de la fonction `SimProcess`
+
+On crée une fonction `SimProcess` qui simule une trajectoire de taille \(n\) du processus \((X_t)\).
+
+```{r simprocess-function}
+SimProcess <- function(n) {
+  # Initialiser le vecteur de la série
+  X <- rep(NA, n)
+
+  # Générer le bruit blanc gaussien
+  epsilon <- rnorm(n, mean = 0, sd = 1)
+
+  # Condition initiale (par exemple, X_0 = 0)
+  X[1] <- 1 + 1^2 + (1/3) * 0 + epsilon[1]
+
+  # Simuler la série
+  for (t in 2:n) {
+    X[t] <- 1 + t^2 + (1/3) * X[t-1] + epsilon[t]
+  }
+
+  return(X)
+}
+```
+## 3. Simulation d'une trajectoire de taille 1000
+On simule une trajectoire de taille 1000 du processus ((X_t)).
+```{r}
+set.seed(123) # Pour la reproductibilité
+n <- 1000
+X <- SimProcess(n)
+
+```
+## 4. Représentation graphique de la série, de l'autocorrélation et de l'autocorrélation partielle
+On trace la série simulée, sa fonction d'autocorrélation empirique (ACF) et sa fonction d'autocorrélation partielle empirique (PACF).
+```{r}
+par(mfrow = c(2, 2))
+
+# Tracer la série
+plot(X, type = "l", main = "Série simulée (X_t)", ylab = "Valeur", xlab = "Temps")
+
+# Tracer l'ACF
+acf_X <- acf(X, main = "Fonction d'autocorrélation empirique (ACF)")
+
+# Tracer la PACF
+pacf_X <- pacf(X, main = "Fonction d'autocorrélation partielle empirique (PACF)")
+
+```
+
+## 5. Étude de la stationnarité
+On étudie la stationnarité des processus ((X_t)), ((\Delta X_t)), et ((\Delta^2 X_t)).
+### 5.1. Calcul des différences premières et secondes
+
+```{r}
+# Différences premières
+Delta_X <- diff(X)
+
+# Différences secondes
+Delta2_X <- diff(X, differences = 2)
+
+```
+### 5.2. Tracé des ACF et PACF pour les différences
+
+```{r}
+par(mfrow = c(3, 2))
+
+# Tracer les différences premières
+plot(Delta_X, type = "l", main = "Différences premières (ΔX_t)", ylab = "Valeur", xlab = "Temps")
+
+# Tracer l'ACF des différences premières
+acf(Delta_X, main = "ACF des différences premières")
+
+# Tracer la PACF des différences premières
+pacf(Delta_X, main = "PACF des différences premières")
+
+# Tracer les différences secondes
+plot(Delta2_X, type = "l", main = "Différences secondes (Δ²X_t)", ylab = "Valeur", xlab = "Temps")
+
+# Tracer l'ACF des différences secondes
+acf(Delta2_X, main = "ACF des différences secondes")
+
+# Tracer la PACF des différences secondes
+pacf(Delta2_X, main = "PACF des différences secondes")
+
+```
+## 6. Ajustement de modèles aux différences secondes
+On ajuste un (\text{AR}(1)), un (\text{MA}(2)), un (\text{ARMA}(1,2)), et un (\text{ARMA}(2,2)) aux différences secondes ((\Delta^2 X_t)).
+```{r}
+# Ajustement d'un AR(1)
+fit_ar1 <- arima(Delta2_X, order = c(1, 0, 0))
+
+# Ajustement d'un MA(2)
+fit_ma2 <- arima(Delta2_X, order = c(0, 0, 2))
+
+# Ajustement d'un ARMA(1,2)
+fit_arma12 <- arima(Delta2_X, order = c(1, 0, 2))
+
+# Ajustement d'un ARMA(2,2)
+fit_arma22 <- arima(Delta2_X, order = c(2, 0, 2))
+
+```
+
+## 7. Choix du modèle avec le critère AIC
+On utilise le critère AIC pour choisir le meilleur modèle.
+
+```{r}
+# Calculer les AIC pour chaque modèle
+aic_values <- c(
+  AR1 = fit_ar1$aic,
+  MA2 = fit_ma2$aic,
+  ARMA12 = fit_arma12$aic,
+  ARMA22 = fit_arma22$aic
+)
+
+# Afficher les AIC
+aic_values
+
+# Sélectionner le modèle avec le plus petit AIC
+best_model <- names(which.min(aic_values))
+best_model
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
