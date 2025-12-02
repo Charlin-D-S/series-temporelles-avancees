@@ -1,0 +1,371 @@
+---
+title: "Atelier2"
+output: html_document
+date: "2025-12-02"
+---
+# Modèles ARMA
+```{r}
+X= read.table("serie1.dat")
+head(df)
+```
+```{r}
+install.packages('tseries')
+```
+```{r}
+install.packages("forecast")
+library(forecast)
+```
+
+```{r}
+library(tseries)
+data(USeconomic)
+head(USeconomic)
+```
+
+```{r}
+X = ts(USeconomic[,"log(GNP)"],start=1954,frequency = 4)
+plot.ts(X)
+```
+```{r}
+par(mfrow = c(1, 2))
+
+# Tracer l'ACF
+acf_X <- acf(X, main = "Fonction d'autocorrélation empirique (ACF)")
+
+# Tracer la PACF
+pacf_X <- pacf(X, main = "Fonction d'autocorrélation partielle empirique (PACF)")
+```
+
+
+```{r}
+dX = diff(X)
+
+par(mfrow = c(2, 2))
+plot.ts(dX)
+# Tracer l'ACF
+acf_X <- acf(dX, main = "Fonction d'autocorrélation empirique (ACF)")
+
+# Tracer la PACF
+pacf_X <- pacf(dX, main = "Fonction d'autocorrélation partielle empirique (PACF)")
+```
+
+```{r}
+adf.test(dX)
+```
+```{r}
+install.packages('urca')
+library(urca)
+```
+
+```{r}
+adf_test <- ur.df(dX, type = "trend", selectlags = "AIC")
+
+# Résultats du test
+summary(adf_test)
+```
+
+```{r}
+# Test Phillips-Perron
+pp_test <- ur.pp(dX, type = "Z-alpha", model = "trend", lags = "long")
+
+# Résultats du test
+summary(pp_test)
+```
+
+
+```{r}
+# Initialiser une liste pour stocker les résultats
+results <- data.frame(p = integer(), q = integer(), AIC = numeric(), BIC = numeric())
+
+# Paramètres max pour p et q
+pmax <- 1
+qmax <- 2
+
+# Estimation de tous les modèles ARMA possibles
+for (p in 0:pmax) {
+  for (q in 0:qmax) {
+    if (p == 0 && q == 0) next  # Skip ARMA(0,0) car c'est un modèle de moyenne
+    
+    # Essayer de fitter un modèle ARMA(p, q)
+    model <- tryCatch({
+      arima(dX, order = c(p, 0, q))
+    }, error = function(e) {
+      return(NULL)
+    })
+    
+    # Si le modèle a été ajusté correctement
+    if (!is.null(model)) {
+      # Extraire AIC et BIC
+      aic <- AIC(model)
+      bic <- BIC(model)
+      
+      # Ajouter les résultats à la liste
+      results <- rbind(results, data.frame(p = p, q = q, AIC = aic, BIC = bic))
+    }
+  }
+}
+
+# Trier les résultats par BIC
+results_sorted <- results[order(results$BIC), ]
+
+```
+
+```{r}
+results_sorted
+```
+```{r}
+model <- arima(dX, order = c(1, 0, 0))
+summary(model)
+```
+```{r}
+dX_adj = fitted(model)+model$residuals
+plot(dX,type="l")
+lines(dX_adj,col="blue")
+mean(abs(dX-dX_adj))
+```
+
+```{r}
+model_auto = auto.arima(X)
+summary(model_auto)
+```
+
+# Modèles GARCH
+
+```{r}
+install.packages("quandmod")
+```
+```{r}
+library(quantmod)
+
+```
+# Exercice 1 : Comportement asymptotique des estimateurs ARMA
+
+## 1. Condition de stationnarité
+
+Pour que le processus \((X_t)\) soit stationnaire au second ordre, il faut que :
+- Le processus \((\epsilon_t)\) soit stationnaire, ce qui nécessite que \(\alpha < 1\) (pour un processus ARCH(1)).
+- Le processus \((X_t)\) soit stationnaire, ce qui nécessite que \( a| < 1\).
+
+---
+
+## 2. Création de la fonction `Eps`
+
+```{r}
+Eps <- function(n, omega, alpha) {
+  # Initialisation
+  epsilon <- numeric(n)
+  sigma2 <- numeric(n)
+  eta <- rnorm(n, mean = 0, sd = 1)  # Bruit gaussien
+
+  # Condition initiale
+  sigma2[1] <- omega / (1 - alpha)  # Variance inconditionnelle
+  epsilon[1] <- sqrt(sigma2[1]) * eta[1]
+
+  # Simulation
+  for (t in 2:n) {
+    sigma2[t] <- omega + alpha * epsilon[t-1]^2
+    epsilon[t] <- sqrt(sigma2[t]) * eta[t]
+  }
+
+  return(epsilon)
+}
+```
+
+
+```{r}
+eps = function(n,w,a){
+   # Générer les variables gaussiennes indépendantes
+  eta <- rnorm(n, mean = 0, sd = 1)
+  sigma = rep(NA, n)
+  epsilon <-  rep(NA, n)
+  epsilon[1] = eta[1]
+  sigma[1]=0
+  #X <- rep(NA, n)
+  for (t in 2:n) {
+    sigma[t]=w+a*epsilon[t-1]^2
+    epsilon[t] <- (sigma[t]^0.5)* eta[t]
+    
+    #X[t]=a*X[t-1]+epsilon[t]-b*epsilon[t-1]
+    
+    
+  }
+
+  return(epsilon)
+}
+```
+
+```{r}
+sim_process = function(n,w,a,b,alpha){
+  epsilon <-  eps(n,w,alpha)
+  X <- c(epsilon[1],rep(NA, n-1))
+  for (t in 2:n) {
+    X[t]=a*X[t-1]+epsilon[t]-b*epsilon[t-1]
+    
+    
+  }
+
+  return(X)
+}
+```
+## 3. Création de la fonction SimProcess
+```{r}
+SimProcess <- function(n, a, b, omega, alpha) {
+  # Générer epsilon_t
+  epsilon <- Eps(n, omega, alpha)
+
+  # Initialisation de X_t
+  X <- numeric(n)
+  X[1] <- epsilon[1]  # Condition initiale
+
+  # Simulation
+  for (t in 2:n) {
+    X[t] <- a * X[t-1] + epsilon[t] - b * epsilon[t-1]
+  }
+
+  return(X)
+}
+
+```
+
+## 4. Simulation et analyse des processus
+## 4.a. Génération et traçage des autocorrélations de ((\epsilon_t)) et ((\epsilon_t^2))
+```{r}
+set.seed(123)
+n <- 3000
+omega <- 1
+alpha <- 0.6
+epsilon <- Eps(n, omega, alpha)
+
+# Tracer les autocorrélations
+par(mfrow = c(1, 2))
+acf(epsilon, main = "Autocorrélations de (epsilon_t)")
+acf(epsilon^2, main = "Autocorrélations de (epsilon_t^2)")
+
+```
+Les autocorrélations de ((\epsilon_t)) sont proches de zéro, car ((\epsilon_t)) est un bruit blanc.
+Les autocorrélations de ((\epsilon_t^2)) montrent une dépendance, car ((\epsilon_t)) suit un processus ARCH(1).
+### 4.b. Simulation de ((X_t)) et traçage
+```{r}
+a <- -0.4
+b <- 0.7
+X <- SimProcess(n, a, b, omega, alpha)
+
+# Tracer la série, ACF et PACF
+par(mfrow = c(1, 3))
+plot(X, type = "l", main = "Trajectoire de (X_t)")
+acf(X, main = "Autocorrélations de (X_t)")
+pacf(X, main = "Autocorrélations partielles de (X_t)")
+
+```
+
+La trajectoire de ((X_t)) montre un comportement stationnaire (car (|a| < 1)).
+Les autocorrélations et autocorrélations partielles permettent d'identifier l'ordre des composantes AR et MA.
+## 5. Création de la fonction Objective
+```{r}
+Objective <- function(params, X) {
+  a <- params[1]
+  b <- params[2]
+  n <- length(X)
+
+  # Initialisation des erreurs
+  epsilon <- numeric(n)
+  epsilon[1] <- X[1]  # Condition initiale
+
+  # Calcul des erreurs
+  for (t in 2:n) {
+    epsilon[t] <- X[t] - a * X[t-1] + b * epsilon[t-1]
+  }
+
+  # Calcul de la fonction objectif
+  Qn <- mean(epsilon^2)
+
+  return(Qn)
+}
+
+```
+
+## 6. Estimation des paramètres par moindres carrés
+
+```{r}
+# Paramètres initiaux
+initial_params <- c(0.5, 0.5)
+
+# Optimisation avec nlminb
+optim_result <- nlminb(
+  start = initial_params,
+  objective = Objective,
+  X = X
+)
+
+# Estimations
+estimates <- optim_result$par
+names(estimates) <- c("a_hat", "b_hat")
+print(estimates)
+
+
+```
+
+## 7. Comparaison avec la fonction arima
+
+
+```{r}
+# Estimation avec arima
+arima_result <- arima(X, order = c(1, 0, 1))
+print(arima_result)
+
+```
+## 8. Simulation de 500 trajectoires et estimation des paramètres
+
+```{r}
+n_simulations <- 500
+n <- 3000
+estimates_matrix <- matrix(NA, nrow = n_simulations, ncol = 2)
+colnames(estimates_matrix) <- c("a_hat", "b_hat")
+
+for (i in 1:n_simulations) {
+  X_sim <- SimProcess(n, a, b, omega, alpha)
+  optim_result <- nlminb(
+    start = initial_params,
+    objective = Objective,
+    X = X_sim
+  )
+  estimates_matrix[i, ] <- optim_result$par
+}
+
+```
+
+
+## 9. Histogramme des estimations
+
+```{r}
+par(mfrow = c(2, 1))
+hist(estimates_matrix[, "a_hat"], main = "Histogramme de a_hat", xlab = "Valeur estimée de a")
+abline(v = a, col = "red", lwd =2,breaks = 100 )
+hist(estimates_matrix[, "b_hat"], main = "Histogramme de b_hat", xlab = "Valeur estimée de b")
+abline(v = b, col = "red", lwd = 2,breaks = 100)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

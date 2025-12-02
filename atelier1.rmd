@@ -323,16 +323,144 @@ best_model
 
 ```
 
+# Partie 3.6 : AR faibles et comportement asymptotique
 
+## 1. Définition du processus
 
+On considère le modèle autorégressif suivant :
 
+\[
+X_t = a X_{t-1} + \epsilon_t
+\]
 
+où \((\epsilon_t)\) est défini par :
 
+\[
+\epsilon_t = \eta_t^2 \eta_{t-1}
+\]
 
+avec \((\eta_t)\) une suite de variables aléatoires gaussiennes indépendantes, centrées et de variance égale à 1.
 
+---
 
+## 2. Condition de stationnarité
 
+Pour que le processus \((X_t)\) soit stationnaire au second ordre, il faut que \( a| < 1\).
 
+---
+
+## 3. Création de la fonction `Bruit`
+
+On crée une fonction `Bruit` qui génère une trajectoire de taille \(n\) du processus \((\epsilon_t)\).
+
+```{r bruit-function}
+Bruit <- function(n) {
+  # Générer les variables gaussiennes indépendantes
+  eta <- rnorm(n + 1, mean = 0, sd = 1)
+
+  # Calculer epsilon_t = eta_t^2 * eta_{t-1}
+  epsilon <- rep(NA, n)
+  for (t in 1:n) {
+    epsilon[t] <- eta[t+1]^2 * eta[t]
+  }
+
+  return(epsilon)
+}
+```
+
+## 4. Création de la fonction SimulProcess
+On crée une fonction SimulProcess qui simule une trajectoire de taille (n) du processus ((X_t)).
+
+```{r}
+SimulProcess <- function(n, a) {
+  # Générer le bruit
+  epsilon <- Bruit(n)
+
+  # Initialiser le vecteur de la série
+  X <- rep(NA, n)
+
+  # Condition initiale (par exemple, X_0 = 0)
+  X[1] <- epsilon[1]
+
+  # Simuler la série
+  for (t in 2:n) {
+    X[t] <- a * X[t-1] + epsilon[t]
+  }
+
+  return(X)
+}
+
+```
+## 5. Simulation d'une trajectoire avec (a = 0.3)
+On simule une trajectoire de taille 5000 du processus ((X_t)) avec (a = 0.3)
+
+```{r}
+set.seed(123) # Pour la reproductibilité
+n <- 5000
+a <- 0.3
+X <- SimulProcess(n, a)
+plot.ts(X, type = "l", main = "Série simulée (X_t) avec a = 0.3", ylab = "Valeur", xlab = "Temps")
+```
+
+```{r}
+par(mfrow = c(1, 2))
+
+# Tracer l'ACF
+acf_X <- acf(X, main = "Fonction d'autocorrélation empirique (ACF)")
+
+# Tracer la PACF
+pacf_X <- pacf(X, main = "Fonction d'autocorrélation partielle empirique (PACF)")
+
+```
+
+## 7. Création de la fonction Estim
+On crée une fonction Estim qui calcule l'estimateur des moindres carrés ordinaires du paramètre autorégressif (a).
+```{r}
+Estim <- function(X) {
+  n <- length(X)
+  numerator <- sum(X[2:n] * X[1:(n-1)])
+  denominator <- sum(X[1:(n-1)]^2)
+  a_hat <- numerator / denominator
+  return(a_hat)
+}
+
+```
+## 8. Simulation de 1000 trajectoires et estimation de (a)
+On génère 1000 trajectoires de taille 5000 et on calcule l'estimateur des moindres carrés ordinaires pour chaque trajectoire.
+
+```{r}
+set.seed(123)
+n_simulations <- 1000
+n <- 5000
+a <- 0.3
+
+# Initialiser un vecteur pour stocker les estimations
+estimations <- rep(NA, n_simulations)
+
+# Boucle sur les simulations
+for (i in 1:n_simulations) {
+  X_sim <- SimulProcess(n, a)
+  estimations[i] <- Estim(X_sim)
+}
+
+```
+## 9. Tracé de l'histogramme des estimations
+On trace l'histogramme de la distribution des estimateurs calculés.
+
+```{r}
+hist(estimations, breaks = 30, main = "Histogramme des estimations de a", xlab = "Valeur estimée de a")
+abline(v = a, col = "red", lwd = 2, lty = 2)
+legend("topright", legend = c(paste("Vraie valeur de a =", a)), col = "red", lty = 2)
+
+```
+
+## Conclusion
+
+On a simulé un processus autorégressif avec un bruit non gaussien.
+
+  - L'estimateur des moindres carrés ordinaires de (a) a été calculé pour 1000 trajectoires.
+  - L'histogramme montre que les estimations sont centrées autour de la vraie valeur de (a = 0.3).
+  - La variance des estimations donne une idée de la précision de l'estimateur.
 
 
 
