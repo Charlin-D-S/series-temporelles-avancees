@@ -265,6 +265,8 @@ Les autocorrélations et autocorrélations partielles permettent d'identifier l'
 Objective <- function(params, X) {
   a <- params[1]
   b <- params[2]
+  #w = params[3]
+  #alpha = params[4]
   n <- length(X)
 
   # Initialisation des erreurs
@@ -346,17 +348,215 @@ abline(v = b, col = "red", lwd = 2,breaks = 100)
 
 ```
 
+## 10 Estimation simultanée des paramètres
+### Création de la fonction Objective
+```{r}
+Objective2 <- function(params, X) {
+  a <- params[1]
+  b <- params[2]
+  w = params[3]
+  alpha = params[4]
+  n <- length(X)
+
+  # Initialisation des erreurs
+  epsilon <- numeric(n)
+  sigma2 <- numeric(n)
+  epsilon[1] <- X[1]  # Condition initiale
+  sigma2[1] = w
+  # Calcul des erreurs
+  for (t in 2:n) {
+    epsilon[t] <- X[t] - a * X[t-1] + b * epsilon[t-1]
+    sigma2[t ]  = w + alpha*epsilon[t-1]^2
+  }
+
+  # Calcul de la fonction objectif
+  loglik <- -0.5* mean(log(sigma2)+epsilon^2/sigma2)
+
+  return(-loglik)
+}
+
+```
+
+### Estimation des paramètres par moindres carrés
+
+```{r}
+# Paramètres initiaux
+initial_params <- c(0.5, 0.5,0.5, 0.5)
+
+# Optimisation avec nlminb
+optim_result <- nlminb(
+  start = initial_params,
+  objective = Objective2,
+  X = X
+)
+
+# Estimations
+estimates <- optim_result$par
+names(estimates) <- c("a_hat", "b_hat", "w_hat", "alpha_hat")
+print(estimates)
+
+
+```
+
+### Comparaison avec la fonction arima
+
+
+```{r}
+# Estimation avec arima
+arima_result <- arima(X, order = c(1, 0, 1))
+print(arima_result)
+
+```
+### Simulation de 500 trajectoires et estimation des paramètres
+
+```{r}
+n_simulations <- 500
+n <- 3000
+estimates_matrix <- matrix(NA, nrow = n_simulations, ncol = 4)
+colnames(estimates_matrix) <- c("a_hat", "b_hat","w_hat", "alpha_hat")
+
+for (i in 1:n_simulations) {
+  X_sim <- SimProcess(n, a, b, omega, alpha)
+  optim_result <- nlminb(
+    start = initial_params,
+    objective = Objective,
+    X = X_sim
+  )
+  estimates_matrix[i, ] <- optim_result$par
+}
+
+```
+
+
+### 9. Histogramme des estimations
+
+```{r}
+par(mfrow = c(2, 2))
+hist(estimates_matrix[, "a_hat"], main = "Histogramme de a_hat", xlab = "Valeur estimée de a")
+abline(v = a, col = "red", lwd =2,breaks = 1000 )
+hist(estimates_matrix[, "b_hat"], main = "Histogramme de b_hat", xlab = "Valeur estimée de b")
+abline(v = b, col = "red", lwd = 2,breaks = 1000)
+hist(estimates_matrix[, "w_hat"], main = "Histogramme de w_hat", xlab = "Valeur estimée de w")
+abline(v = a, col = "red", lwd =2,breaks = 1000 )
+hist(estimates_matrix[, "alpha_hat"], main = "Histogramme de alpha_hat", xlab = "Valeur estimée de alpha")
+abline(v = b, col = "red", lwd = 2,breaks = 1000)
+
+```
+
+
+# S&P500 GARCH Modeling
+
+```{r}
+library(quantmod)
+getSymbols(Symbols = "^GSPC",src = "yahoo",from="2000-01-01",to = "2019-12-31")
+P = Ad(GSPC)
+plot.ts(P)
+```
+
+
+```{r}
+r = 100*diff(log(P))
+plot.ts(r)
+```
+
+```{r}
+install.packages('rugarch')
+library(rugarch)
+```
+
+
+```{r}
+par(mfrow = c(1,2))
+r = na.omit(r)
+acf(r)
+pacf(r)
+```
+```{r}
+adf.test(r)
+```
+
+```{r}
+# Spécification du modèle
+spec <- ugarchspec(
+  variance.model = list(
+    model = "sGARCH",  # Modèle GARCH standard
+    garchOrder = c(1, 1)  # Ordre GARCH(1,1)
+  ),
+  mean.model = list(
+    armaOrder = c(1, 1),  # Ordre ARMA(1,1)
+    include.mean = TRUE   # Inclure une constante dans la moyenne
+  ),
+  distribution.model = "std"  # Distribution des résidus (gaussienne)
+)
+
+```
+
+```{r}
+# Ajustement du modèle
+fit <- ugarchfit(spec, data = r)
+show(fit)
+```
+
+```{r}
+resid_std = residuals(fit,standardize = T)
+sigma_hat = sigma(fit)
+par(mfrow = c(2,1))
+plot(resid_std)
+plot(sigma_hat)
+```
+
+
+```{r}
+# Initialiser une liste pour stocker les résultats
+results <- data.frame(p = integer(), q = integer(), AIC = numeric(), BIC = numeric())
+
+# Paramètres max pour p et q
+pmax <- 5
+qmax <- 3
+
+# Estimation de tous les modèles ARMA possibles
+for (p in 0:pmax) {
+  for (q in 0:qmax) {
+    if (p == 0 && q == 0) next  # Skip ARMA(0,0) car c'est un modèle de moyenne
+    
+    # Essayer de fitter un modèle ARMA(p, q)
+    model <- tryCatch({
+      arima(r, order = c(p, 0, q))
+    }, error = function(e) {
+      return(NULL)
+    })
+    
+    # Si le modèle a été ajusté correctement
+    if (!is.null(model)) {
+      # Extraire AIC et BIC
+      aic <- AIC(model)
+      bic <- BIC(model)
+      
+      # Ajouter les résultats à la liste
+      results <- rbind(results, data.frame(p = p, q = q, AIC = aic, BIC = bic))
+    }
+  }
+}
+
+# Trier les résultats par BIC
+results_sorted <- results[order(results$BIC), ]
+results_sorted
+```
 
 
 
+```{r}
+arma_model = arima(r,order = c(2,0,0))
+summary(arma_model)
+residuals = arma_model$res
+```
 
-
-
-
-
-
-
-
+```{r}
+par(mfrow = c(1,3))
+plot(residuals)
+acf(residuals)
+pacf(residuals)
+```
 
 
 
